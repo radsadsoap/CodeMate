@@ -10,8 +10,11 @@ const PORT = process.env.PORT || 3000;
 
 //Routes
 const userRoutes = require("./routes/userRoutes");
+const sessionRoutes = require("./routes/sessionRoutes");
 
+// 
 app.use("/api/users", userRoutes);
+app.use("/api/sessions", sessionRoutes);
 
 async function startServer() {
     await connectDB();
