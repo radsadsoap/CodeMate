@@ -9,6 +9,9 @@ app.use(express.json());
 const PORT = process.env.PORT || 3000;
 
 //Routes
+const userRoutes = require("./routes/userRoutes");
+
+app.use("/api/users", userRoutes);
 
 async function startServer() {
     await connectDB();
