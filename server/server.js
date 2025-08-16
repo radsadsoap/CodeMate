@@ -12,7 +12,6 @@ const PORT = process.env.PORT || 3000;
 const userRoutes = require("./routes/userRoutes");
 const sessionRoutes = require("./routes/sessionRoutes");
 
-// 
 app.use("/api/users", userRoutes);
 app.use("/api/sessions", sessionRoutes);
 
