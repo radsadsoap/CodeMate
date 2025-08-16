@@ -31,7 +31,7 @@ const sessionSchema = new mongoose.Schema(
             },
         ],
     },
-    { timestamp: true }
+    { timestamps: true }
 )
 
 // Pre saving middleware to update timestamps
