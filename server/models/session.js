@@ -34,10 +34,4 @@ const sessionSchema = new mongoose.Schema(
     { timestamp: true }
 )
 
-// Pre saving middleware to update timestamps
-sessionSchema.pre('save', function (next) {
-    this.updatedAt = Date.now()
-    next()
-})
-
 module.exports = mongoose.model('Session', sessionSchema)
