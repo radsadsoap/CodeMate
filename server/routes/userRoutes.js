@@ -4,7 +4,7 @@ const { authMiddleware, checkRole } = require("../middlewares/authmiddleware");
 
 const router = express.Router();
 router.post("/register", register);
-router.get("/login", login);
+router.post("/login", login);
 router.get(
     "/me",
     authMiddleware,

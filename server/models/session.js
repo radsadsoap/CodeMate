@@ -30,6 +30,31 @@ const sessionSchema = new mongoose.Schema(
                 },
             },
         ],
+        isActive: {
+            type: Boolean,
+            default: true,
+        },
+        language: {
+            type: String,
+            enum: ['python', 'java', 'cpp'],
+            default: 'python',
+        },
+        raisedHands: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'User',
+            },
+        ],
+        createdBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: true,
+        },
+        endedAt: { type: Date },
+        currentCode: {
+            type: String,
+            default: '',
+        },
     },
     { timestamps: true }
 )
