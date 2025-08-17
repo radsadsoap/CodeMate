@@ -30,14 +30,33 @@ const sessionSchema = new mongoose.Schema(
                 },
             },
         ],
+        isActive: {
+            type: Boolean,
+            default: true,
+        },
+        language: {
+            type: String,
+            enum: ['python', 'java', 'cpp'],
+            default: 'python',
+        },
+        raisedHands: [
+            {
+                type: mongoose.Schema.Types.ObjectId,
+                ref: 'User',
+            },
+        ],
+        createdBy: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: 'User',
+            required: true,
+        },
+        endedAt: { type: Date },
+        currentCode: {
+            type: String,
+            default: '',
+        },
     },
-    { timestamp: true }
+    { timestamps: true }
 )
-
-// Pre saving middleware to update timestamps
-sessionSchema.pre('save', function (next) {
-    this.updatedAt = Date.now()
-    next()
-})
 
 module.exports = mongoose.model('Session', sessionSchema)

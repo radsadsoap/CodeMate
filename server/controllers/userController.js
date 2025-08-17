@@ -6,7 +6,7 @@ const validator = require("validator");
 
 //User registration
 const register = async (req, res) => {
-    const { name, email, password } = req.body;
+    const { name, email, password, role } = req.body;
 
     // Checking for validation
     if (!name || !email || !password)
@@ -30,18 +30,17 @@ const register = async (req, res) => {
             name,
             email,
             password: hashPassword,
+            role,
         });
         await newUser.save();
 
         //Generating token
         const token = generateToken(newUser);
-        return res
-            .status(201)
-            .json({
-                message: "User added Successfully",
-                token,
-                expiresIn: "1d",
-            });
+        return res.status(201).json({
+            message: "User added Successfully",
+            token,
+            expiresIn: "1d",
+        });
     } catch (error) {
         return res.status(500).json({ error: error.message });
     }
