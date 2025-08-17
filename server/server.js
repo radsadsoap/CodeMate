@@ -1,6 +1,7 @@
 const express = require("express");
 const connectDB = require("./config/db");
 require("dotenv").config();
+
 const app = express();
 
 //Running middleware
@@ -16,10 +17,14 @@ app.use("/api/users", userRoutes);
 app.use("/api/sessions", sessionRoutes);
 
 async function startServer() {
-    await connectDB();
-    app.listen(PORT, () => {
-        console.log(`Server is running on port ${PORT}`);
-    });
+    try {
+        await connectDB();
+        app.listen(PORT, () => {
+            console.log(`Server is running on port ${PORT}`);
+        });
+    } catch (error) {
+        console.error("Failed to start server", error);
+    }
 }
 
 startServer();
