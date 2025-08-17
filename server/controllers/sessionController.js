@@ -237,6 +237,144 @@ const leaveSession = async (req, res) => {
     }
 }
 
+const raiseHand = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const userId = req.user.id;
+
+        const session = await Session.findOne({ roomId, isActive: true });
+
+        if (!session)
+            return res
+                .status(404)
+                .json({ message: "Session not found or inactive" });
+
+        if (!session.participants.includes(userId)) {
+            return res
+                .status(403)
+                .json({ message: "Not a participant of this session" });
+        }
+
+        if (!session.raisedHands.includes(userId)) {
+            session.raisedHands.push(userId);
+            await session.save();
+        }
+
+        res.status(200).json({
+            message: "Hand raised successfully",
+            roomId: session.roomId,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const lowerHand = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+        const userId = req.user.id;
+
+        const session = await Session.findOne({ roomId });
+
+        if (!session)
+            return res.status(404).json({ message: "Session not found" });
+
+        session.raisedHands = session.raisedHands.filter(
+            (p) => p.toString() !== userId
+        );
+        await session.save();
+
+        res.status(200).json({
+            message: "Hand lowered successfully",
+            roomId: session.roomId,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getRaisedHands = async (req, res) => {
+    try {
+        const { roomId } = req.params;
+
+        const session = await Session.findOne({ roomId }).populate(
+            "raisedHands",
+            "name email"
+        );
+
+        if (!session)
+            return res.status(404).json({ message: "Session not found" });
+
+        res.status(200).json({
+            message: "Raised hands retrieved",
+            raisedHands: session.raisedHands,
+            count: session.raisedHands.length,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getTADashboard = async (req, res) => {
+    try {
+        const activeSessions = await Session.find({ isActive: true })
+            .populate("createdBy", "name email")
+            .populate("participants", "name email")
+            .populate("raisedHands", "name email")
+            .sort({ createdAt: -1 });
+
+        const dashboardData = activeSessions.map((session) => ({
+            roomId: session.roomId,
+            language: session.language,
+            createdBy: session.createdBy,
+            participantCount: session.participants.length,
+            raisedHandsCount: session.raisedHands.length,
+            raisedHands: session.raisedHands,
+            createdAt: session.createdAt,
+            linkShare: session.linkShare,
+        }));
+
+        res.status(200).json({
+            message: "TA Dashboard data retrieved",
+            totalActiveSessions: activeSessions.length,
+            totalRaisedHands: activeSessions.reduce(
+                (sum, s) => sum + s.raisedHands.length,
+                0
+            ),
+            sessions: dashboardData,
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+const getAllRaisedHands = async (req, res) => {
+    try {
+        const sessionsWithRaisedHands = await Session.find({
+            isActive: true,
+            raisedHands: { $ne: [] },
+        })
+            .populate("createdBy", "name email")
+            .populate("raisedHands", "name email")
+            .sort({ createdAt: -1 });
+
+        res.status(200).json({
+            message: "All raised hands retrieved",
+            totalSessions: sessionsWithRaisedHands.length,
+            sessions: sessionsWithRaisedHands.map((session) => ({
+                roomId: session.roomId,
+                language: session.language,
+                createdBy: session.createdBy,
+                raisedHands: session.raisedHands,
+                createdAt: session.createdAt,
+                linkShare: session.linkShare,
+            })),
+        });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
 module.exports = {
     createSession,
     joinSession,
@@ -246,4 +384,9 @@ module.exports = {
     saveCode,
     getParticipants,
     leaveSession,
+    raiseHand,
+    lowerHand,
+    getRaisedHands,
+    getTADashboard,
+    getAllRaisedHands,
 }

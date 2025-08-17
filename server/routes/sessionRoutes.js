@@ -11,6 +11,11 @@ const {
     saveCode,
     getParticipants,
     leaveSession,
+    raiseHand,
+    lowerHand,
+    getRaisedHands,
+    getTADashboard,
+    getAllRaisedHands,
 } = require('../controllers/sessionController')
 
 // Basic session routes
@@ -26,5 +31,24 @@ router.put('/:roomId/code', authMiddleware, saveCode)
 //Participants
 router.get('/:roomId/participants', authMiddleware, getParticipants)
 router.post('/:roomId/leave', authMiddleware, leaveSession)
+
+// Raise Hand feature
+router.post("/:roomId/raise-hand", authMiddleware, raiseHand);
+router.delete("/:roomId/raise-hand", authMiddleware, lowerHand);
+router.get("/:roomId/raised-hands", authMiddleware, getRaisedHands);
+
+// TeachingAssistant
+router.get(
+    "/ta/dashboard",
+    authMiddleware,
+    checkRole("teaching_assistant"),
+    getTADashboard
+);
+router.get(
+    "/ta/raisedHands",
+    authMiddleware,
+    checkRole("teaching_assistant"),
+    getAllRaisedHands
+);
 
 module.exports = router
