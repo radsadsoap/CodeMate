@@ -4,7 +4,9 @@
 </h1>
 <p align="center">Code Here. Code Now. Live coding rooms with one shared editor, real code execution, raised hands and voice.</p>
 
-![CodeMate session room: a TA and a student editing the same Python file](docs/screenshots/after/session-room.png)
+<img width="1535" height="730" alt="home-desktop" src="https://github.com/user-attachments/assets/b5acff1a-8b5e-41ab-9b32-98ddc46318f4" />
+
+<img width="1536" height="730" alt="session-room" src="https://github.com/user-attachments/assets/784f6ee0-908d-40e1-a275-34741e79e673" />
 
 ## 🌟 Features
 
