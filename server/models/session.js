@@ -1,62 +1,29 @@
-const mongoose = require('mongoose')
+import mongoose from 'mongoose';
+import { LANGUAGES } from '../utils/constants.js';
+
+const { ObjectId } = mongoose.Schema.Types;
+
+const codeSnapshot = Object.fromEntries(LANGUAGES.map((language) => [language, String]));
 
 const sessionSchema = new mongoose.Schema(
     {
-        roomId: {
-            type: String,
-            required: true,
-            unique: true,
-        },
-        linkShare: {
-            type: String,
-            unique: true,
-        },
-        participants: [
-            {
-                type: mongoose.Schema.Types.ObjectId,
-                ref: 'User',
-            },
-        ],
-        codeHistory: [
-            {
-                code: String,
-                timestamp: {
-                    type: Date,
-                    default: Date.now,
-                },
-                author: {
-                    type: mongoose.Schema.Types.ObjectId,
-                    ref: 'User',
-                },
-            },
-        ],
-        isActive: {
-            type: Boolean,
-            default: true,
-        },
-        language: {
-            type: String,
-            enum: ['python', 'java', 'cpp'],
-            default: 'python',
-        },
-        raisedHands: [
-            {
-                type: mongoose.Schema.Types.ObjectId,
-                ref: 'User',
-            },
-        ],
-        createdBy: {
-            type: mongoose.Schema.Types.ObjectId,
-            ref: 'User',
-            required: true,
-        },
+        roomId: { type: String, required: true, unique: true },
+        title: { type: String, required: true, trim: true, maxlength: 80 },
+        language: { type: String, enum: LANGUAGES, default: 'python' },
+        createdBy: { type: ObjectId, ref: 'User', required: true },
+        participants: [{ type: ObjectId, ref: 'User' }],
+        isActive: { type: Boolean, default: true },
         endedAt: { type: Date },
-        currentCode: {
-            type: String,
-            default: '',
-        },
+        editLocked: { type: Boolean, default: false },
+        editors: [{ type: ObjectId, ref: 'User' }],
+        // Encoded Yjs document: the source of truth while the session is live.
+        docState: { type: Buffer, select: false },
+        // Plain-text copy per language for ended sessions and previews.
+        code: codeSnapshot,
     },
     { timestamps: true }
-)
+);
 
-module.exports = mongoose.model('Session', sessionSchema)
+sessionSchema.index({ participants: 1, createdAt: -1 });
+
+export const Session = mongoose.model('Session', sessionSchema);

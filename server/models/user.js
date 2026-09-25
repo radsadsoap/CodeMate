@@ -1,26 +1,25 @@
-const mongoose = require("mongoose");
-const role = require("../config/auth");
+import mongoose from 'mongoose';
+import { ROLES } from '../utils/constants.js';
 
-const UserSchema = new mongoose.Schema({
-    name: {
-        type: String,
-        required: true,
+const userSchema = new mongoose.Schema(
+    {
+        name: { type: String, required: true, trim: true, maxlength: 60 },
+        email: {
+            type: String,
+            required: true,
+            unique: true,
+            lowercase: true,
+            trim: true,
+            maxlength: 254,
+        },
+        passwordHash: { type: String, required: true, select: false },
+        role: { type: String, enum: Object.values(ROLES), required: true },
     },
-    email: {
-        type: String,
-        required: true,
-        unique: true,
-    },
-    password: {
-        type: String,
-        required: true,
-    },
+    { timestamps: true }
+);
 
-    role: {
-        type: String,
-        enum: ["student", "teaching_assistant"],
-        default: "student",
-    },
-});
+userSchema.methods.toPublic = function toPublic() {
+    return { id: this.id, name: this.name, email: this.email, role: this.role };
+};
 
-module.exports = mongoose.model("User", UserSchema);
+export const User = mongoose.model('User', userSchema);

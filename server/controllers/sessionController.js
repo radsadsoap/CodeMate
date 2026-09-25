@@ -1,405 +1,148 @@
-const Session = require("../models/session");
-const generateRoomId = require("../utils/generateRoomId");
-const { getAllActiveUserCounts } = require("../config/socket");
-require("dotenv").config();
+import { z } from 'zod';
+import { Session } from '../models/session.js';
+import { closeRoom, createInitialDocState, roomStats } from '../realtime/rooms.js';
+import { LANGUAGES, ROLES, STARTER_CODE } from '../utils/constants.js';
+import { HttpError } from '../utils/httpError.js';
+import { generateRoomCode, ROOM_CODE_PATTERN } from '../utils/roomCode.js';
 
-const createSession = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const { language } = req.body;
-        const roomId = generateRoomId();
+export const createSessionSchema = z.object({
+    title: z
+        .string({ error: 'Give the session a title.' })
+        .trim()
+        .min(1, 'Give the session a title.')
+        .max(80, 'Keep the title under 80 characters.'),
+    language: z.enum(LANGUAGES, { error: 'Pick one of the supported languages.' }),
+});
 
-        const linkShare = `${process.env.VITE_URL}/session/${roomId}`;
+export const roomParamsSchema = z.object({
+    roomId: z
+        .string()
+        .trim()
+        .toLowerCase()
+        .regex(ROOM_CODE_PATTERN, 'Room codes look like abc-defg-hij.'),
+});
 
-        const session = new Session({
-            roomId,
-            linkShare,
-            participants: [userId],
-            createdBy: userId,
-            language: language || "python",
-        });
-        await session.save();
-        res.status(201).json({
-            message: "Session Created",
-            roomId,
-            linkShare,
-            session: session._id,
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+const idOf = (value) => String(value?._id ?? value);
+
+const isParticipant = (session, userId) =>
+    session.participants.some((participant) => idOf(participant) === userId);
+
+function summarize(session, viewer) {
+    const { online, raisedHands } = session.isActive
+        ? roomStats(session.roomId)
+        : { online: 0, raisedHands: 0 };
+
+    return {
+        roomId: session.roomId,
+        title: session.title,
+        language: session.language,
+        isActive: session.isActive,
+        createdAt: session.createdAt,
+        endedAt: session.endedAt ?? null,
+        owner: { id: idOf(session.createdBy), name: session.createdBy?.name ?? null },
+        isOwner: idOf(session.createdBy) === viewer.id,
+        participantCount: session.participants.length,
+        online,
+        raisedHands,
+    };
+}
+
+async function findSession(roomId) {
+    const session = await Session.findOne({ roomId }).populate('createdBy', 'name');
+    if (!session) throw new HttpError(404, 'No session uses that code. Check it and try again.');
+    return session;
+}
+
+function assertOwner(session, user) {
+    if (idOf(session.createdBy) !== user.id) {
+        throw new HttpError(403, 'Only the TA who created this session can do that.');
     }
-};
+}
 
-const joinSession = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const userId = req.user.id;
+export async function listSessions(req, res) {
+    const sessions = await Session.find({ participants: req.user._id })
+        .sort({ createdAt: -1 })
+        .limit(100)
+        .populate('createdBy', 'name')
+        .lean();
+    res.json({ sessions: sessions.map((session) => summarize(session, req.user)) });
+}
 
-        const session = await Session.findOne({
-            roomId,
-            isActive: true,
-        }).populate("participants", "name email role");
+export async function createSession(req, res) {
+    if (req.user.role !== ROLES.TA) {
+        throw new HttpError(403, 'Only teaching assistants can start sessions. Ask your TA for a code.');
+    }
 
-        if (!session)
-            return res
-                .status(404)
-                .json({ message: "Session not found or inactive" });
+    const { title, language } = req.valid.body;
+    const docState = createInitialDocState();
 
-        if (!session.participants.some((p) => p._id.toString() === userId)) {
-            session.participants.push(userId);
-            await session.save();
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+        try {
+            const session = await Session.create({
+                roomId: generateRoomCode(),
+                title,
+                language,
+                createdBy: req.user._id,
+                participants: [req.user._id],
+                docState,
+                code: STARTER_CODE,
+            });
+            await session.populate('createdBy', 'name');
+            return res.status(201).json({ session: summarize(session, req.user) });
+        } catch (error) {
+            if (error?.code !== 11000) throw error;
         }
-
-        res.status(200).json({
-            message: "Joined session successfully",
-            session: {
-                roomId: session.roomId,
-                language: session.language,
-                currentCode: session.currentCode,
-                participants: session.participants,
-                createdBy: session.createdBy,
-            },
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
     }
-};
 
-const sessionHistory = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const session = await Session.findOne({ roomId })
-            .populate("codeHistory.author", "name")
-            .populate("participants", "name email");
+    throw new HttpError(503, 'Could not reserve a room code. Try again.');
+}
 
-        if (!session)
-            return res.status(404).json({ message: "Session not found" });
+export async function getSession(req, res) {
+    const session = await findSession(req.valid.params.roomId);
+    const summary = summarize(session, req.user);
 
-        res.status(200).json({
-            message: "Session history retrieved",
-            session: {
-                roomId: session.roomId,
-                language: session.language,
-                codeHistory: session.codeHistory,
-                participants: session.participants,
-                createdAt: session.createdAt,
-                endedAt: session.endedAt,
-            },
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+    // Code from ended sessions stays private to the people who were in the room.
+    if (!session.isActive && isParticipant(session, req.user.id)) {
+        summary.code = session.code;
     }
-};
 
-const getUserSessions = async (req, res) => {
-    try {
-        const userId = req.user.id;
-        const userRole = req.user.role;
+    res.json({ session: summary });
+}
 
-        let sessions;
-
-        if (userRole === "teaching_assistant") {
-            // Teaching assistants see all sessions they created
-            sessions = await Session.find({
-                createdBy: userId,
-            })
-                .populate("createdBy", "name")
-                .populate("participants", "name")
-                .sort({ createdAt: -1 });
-        } else {
-            // Students see sessions they are participants in
-            sessions = await Session.find({
-                participants: userId,
-            })
-                .populate("createdBy", "name")
-                .populate("participants", "name")
-                .sort({ createdAt: -1 });
-        }
-
-        // Get active user counts from socket
-        const activeUserCounts = getAllActiveUserCounts();
-
-        res.status(200).json({
-            message: "User sessions retrieved",
-            sessions: sessions.map((session) => ({
-                roomId: session.roomId,
-                language: session.language,
-                isActive: session.isActive,
-                participants: activeUserCounts[session.roomId] || 0, // Active users from socket
-                totalParticipants: session.participants.length, // Total who have ever joined
-                createdBy: session.createdBy,
-                createdAt: session.createdAt,
-                linkShare: `${process.env.VITE_URL}/session/${session.roomId}`,
-            })),
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+export async function joinSession(req, res) {
+    const session = await findSession(req.valid.params.roomId);
+    if (!session.isActive) {
+        throw new HttpError(410, 'This session has ended. Ask your TA for a new code.');
     }
-};
 
-const endSession = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const userId = req.user.id;
+    if (!isParticipant(session, req.user.id)) {
+        await Session.updateOne({ _id: session._id }, { $addToSet: { participants: req.user._id } });
+        session.participants.push(req.user._id);
+    }
 
-        const session = await Session.findOne({ roomId });
+    res.json({ session: summarize(session, req.user) });
+}
 
-        if (!session)
-            return res.status(404).json({ message: "Session not found" });
+export async function endSession(req, res) {
+    const session = await findSession(req.valid.params.roomId);
+    assertOwner(session, req.user);
 
-        if (
-            session.createdBy.toString() != userId &&
-            req.user.role != "teaching_assistant"
-        )
-            return res
-                .status(403)
-                .json({ message: "Not authorized to end the session" });
-
+    if (session.isActive) {
         session.isActive = false;
         session.endedAt = new Date();
         await session.save();
-
-        res.status(200).json({
-            message: "Session ended successfully",
-            roomId: session.roomId,
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
+        await closeRoom(session.roomId, 'ended');
     }
-};
 
-const deleteSession = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const userId = req.user.id;
+    const ended = await findSession(session.roomId);
+    res.json({ session: { ...summarize(ended, req.user), code: ended.code } });
+}
 
-        const session = await Session.findOne({ roomId });
+export async function deleteSession(req, res) {
+    const session = await findSession(req.valid.params.roomId);
+    assertOwner(session, req.user);
 
-        if (!session)
-            return res.status(404).json({ message: "Session not found" });
-
-        if (
-            session.createdBy.toString() != userId &&
-            req.user.role != "teaching_assistant"
-        )
-            return res
-                .status(403)
-                .json({ message: "Not authorized to delete the session" });
-
-        await Session.findOneAndDelete({ roomId });
-
-        res.status(200).json({
-            message: "Session deleted successfully",
-            roomId: roomId,
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const saveCode = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const { code } = req.body;
-        const userId = req.user.id;
-
-        const session = await Session.findOne({ roomId, isActive: true });
-
-        if (!session)
-            return res
-                .status(404)
-                .json({ message: "Session not found or inactive" });
-
-        if (!session.participants.includes(userId))
-            return res
-                .status(403)
-                .json({ message: "Not a participant of this session" });
-
-        session.currentCode = code;
-
-        session.codeHistory.push({
-            code,
-            author: userId,
-            timestamp: new Date(),
-        });
-
-        await session.save();
-
-        res.status(200).json({
-            message: "Code saved successfully",
-            timestamp: new Date(),
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const getParticipants = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-
-        const session = await Session.findOne({ roomId })
-            .populate("participants", "name email role")
-            .populate("raisedHands", "name email");
-
-        if (!session)
-            return res.status(404).json({ message: "Session not found" });
-
-        res.status(200).json({
-            message: "Participants retrieved",
-            participants: session.participants,
-            raisedHands: session.raisedHands,
-            totalParticipants: session.participants.length,
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const leaveSession = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const userId = req.user.id;
-
-        const session = await Session.findOne({ roomId });
-
-        if (!session)
-            return res.status(404).json({ message: "Session not found" });
-
-        // Only clear raised hand status, keep user in participants list
-        // This allows students to see sessions they've joined in "Your Sessions"
-        session.raisedHands = session.raisedHands.filter(
-            (p) => p.toString() !== userId
-        );
-
-        await session.save();
-
-        res.status(200).json({
-            message: "Left session successfully",
-            roomId: session.roomId,
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const raiseHand = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const userId = req.user.id;
-
-        const session = await Session.findOne({ roomId, isActive: true });
-
-        if (!session)
-            return res
-                .status(404)
-                .json({ message: "Session not found or inactive" });
-
-        if (!session.participants.includes(userId)) {
-            return res
-                .status(403)
-                .json({ message: "Not a participant of this session" });
-        }
-
-        if (!session.raisedHands.includes(userId)) {
-            session.raisedHands.push(userId);
-            await session.save();
-        }
-
-        res.status(200).json({
-            message: "Hand raised successfully",
-            roomId: session.roomId,
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const lowerHand = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-        const userId = req.user.id;
-
-        const session = await Session.findOne({ roomId });
-
-        if (!session)
-            return res.status(404).json({ message: "Session not found" });
-
-        session.raisedHands = session.raisedHands.filter(
-            (p) => p.toString() !== userId
-        );
-        await session.save();
-
-        res.status(200).json({
-            message: "Hand lowered successfully",
-            roomId: session.roomId,
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const getRaisedHands = async (req, res) => {
-    try {
-        const { roomId } = req.params;
-
-        const session = await Session.findOne({ roomId }).populate(
-            "raisedHands",
-            "name email"
-        );
-
-        if (!session)
-            return res.status(404).json({ message: "Session not found" });
-
-        res.status(200).json({
-            message: "Raised hands retrieved",
-            raisedHands: session.raisedHands,
-            count: session.raisedHands.length,
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-const getAllRaisedHands = async (req, res) => {
-    try {
-        const sessionsWithRaisedHands = await Session.find({
-            isActive: true,
-            raisedHands: { $ne: [] },
-        })
-            .populate("createdBy", "name email")
-            .populate("raisedHands", "name email")
-            .sort({ createdAt: -1 });
-
-        res.status(200).json({
-            message: "All raised hands retrieved",
-            totalSessions: sessionsWithRaisedHands.length,
-            sessions: sessionsWithRaisedHands.map((session) => ({
-                roomId: session.roomId,
-                language: session.language,
-                createdBy: session.createdBy,
-                raisedHands: session.raisedHands,
-                createdAt: session.createdAt,
-                linkShare: `${process.env.VITE_URL}/session/${session.roomId}`,
-            })),
-        });
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-};
-
-module.exports = {
-    createSession,
-    joinSession,
-    sessionHistory,
-    getUserSessions,
-    endSession,
-    deleteSession,
-    saveCode,
-    getParticipants,
-    leaveSession,
-    raiseHand,
-    lowerHand,
-    getRaisedHands,
-    getAllRaisedHands,
-};
+    await closeRoom(session.roomId, 'deleted');
+    await Session.deleteOne({ _id: session._id });
+    res.status(204).end();
+}

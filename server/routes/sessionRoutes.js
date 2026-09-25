@@ -1,49 +1,27 @@
-const express = require("express");
-const router = express.Router();
-
-const { authMiddleware, checkRole } = require("../middlewares/authmiddleware");
-const {
+import { Router } from 'express';
+import {
     createSession,
-    joinSession,
-    sessionHistory,
-    getUserSessions,
-    endSession,
+    createSessionSchema,
     deleteSession,
-    saveCode,
-    getParticipants,
-    leaveSession,
-    raiseHand,
-    lowerHand,
-    getRaisedHands,
-    getAllRaisedHands,
-} = require("../controllers/sessionController");
+    endSession,
+    getSession,
+    joinSession,
+    listSessions,
+    roomParamsSchema,
+} from '../controllers/sessionController.js';
+import { requireAuth } from '../middlewares/auth.js';
+import { validate } from '../middlewares/validate.js';
 
-// Basic session routes
-router.post("/create", authMiddleware, createSession);
-router.get("/join/:roomId", authMiddleware, joinSession);
-router.get("/history/:roomId", authMiddleware, sessionHistory);
-router.get("/my-sessions", authMiddleware, getUserSessions);
-router.delete("/:roomId", authMiddleware, endSession);
-router.delete("/delete/:roomId", authMiddleware, deleteSession);
+const router = Router();
+const withRoom = validate(roomParamsSchema, 'params');
 
-// Code
-router.put("/:roomId/code", authMiddleware, saveCode);
+router.use(requireAuth);
 
-//Participants
-router.get("/:roomId/participants", authMiddleware, getParticipants);
-router.post("/:roomId/leave", authMiddleware, leaveSession);
+router.get('/', listSessions);
+router.post('/', validate(createSessionSchema), createSession);
+router.get('/:roomId', withRoom, getSession);
+router.post('/:roomId/join', withRoom, joinSession);
+router.post('/:roomId/end', withRoom, endSession);
+router.delete('/:roomId', withRoom, deleteSession);
 
-// Raise Hand feature
-router.post("/:roomId/raise-hand", authMiddleware, raiseHand);
-router.delete("/:roomId/raise-hand", authMiddleware, lowerHand);
-router.get("/:roomId/raised-hands", authMiddleware, getRaisedHands);
-
-// TeachingAssistant
-router.get(
-    "/ta/raisedHands",
-    authMiddleware,
-    checkRole("teaching_assistant"),
-    getAllRaisedHands
-);
-
-module.exports = router;
+export default router;
